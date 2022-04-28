@@ -1,0 +1,10 @@
+/build/
+/dist/
+/venv/
+.idea/
+*cred*
+*.txt
+*.tmp
+token.json
+/main.spec
+*.json
