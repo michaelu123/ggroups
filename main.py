@@ -79,6 +79,12 @@ class GGSync:
 
         self.service = googleapiclient.discovery.build('admin', 'directory_v1', credentials=creds)
 
+        with open("mapping.json", "r") as fp:
+            self.mapGrpA2G = json.load(fp)
+            self.mapGrpG2A = {self.mapGrpA2G[k]: k for k in self.mapGrpA2G.keys()}
+        with open("ignore_groups.json", "r") as fp:
+            self.ignoreGroups = json.load(fp)
+
         try:
             with open("ggdb.json", "r") as fp:
                 self.ggdb = json.load(fp)
@@ -104,12 +110,6 @@ class GGSync:
         ellen.kramschuster@adfc-muenchen.de
         ag-verkehr_aktive@groups.adfc-muenchen.de
         """
-
-        with open("mapping.json", "r") as fp:
-            self.mapGrpA2G = json.load(fp)
-            self.mapGrpG2A = {self.mapGrpA2G[k]: k for k in self.mapGrpA2G.keys()}
-        with open("ignore_groups.json", "r") as fp:
-            self.ignoreGroups = json.load(fp)
 
     def loginADB(self):
         with open("aktdb.creds") as fp:
@@ -191,7 +191,7 @@ class GGSync:
                             continue
                     entries = emailToMember[emKind].get(email)
                     if entries is not None:
-                        print(emKind, "mehrfach", email)
+                        print(emKind, "mehrfach", email, *[e["name"] for e in entries])
                     else:
                         entries = []
                         emailToMember[emKind][email] = entries
@@ -328,6 +328,16 @@ class GGSync:
             print("Error: cannot add email", privEmail, "to user", user["primaryEmail"], ":", e)
             return None
 
+    def setOU2ADFC(self, email):
+        body = {"orgUnitPath": "/ADFC"}
+        try:
+            requ = self.service.users().update(userKey=email, body=body)
+            requ.execute()
+        except Exception as e:
+            print("Error: cannot set OU of", email, ":", e)
+
+
+
     def sortGG(self):
         self.ggdb = {}
         self.ggdb["email2User"] = self.ggUsers
@@ -352,7 +362,7 @@ class GGSync:
             if teamName not in aktTeamNames:
                 continue
             print("get groupmembers from", grpName)
-            # g["members"] = self.getGGGroupMemberNames(g["id"])
+            g["members"] = self.getGGGroupMemberNames(g["id"])
         with open("ggdb.json", "w") as fp:
             json.dump(self.ggdb, fp, indent=2)
 
@@ -522,6 +532,7 @@ class GGSync:
                 elif privEmail != "" and self.memberInGroup(grpName, privEmail):
                     foundEmail = privEmail
                 email = adfcEmail or privEmail
+                gmember = None
                 if email == "":
                     print("no email for ", member["name"])
                     continue
@@ -559,7 +570,7 @@ class GGSync:
                         print("Action: add member", email, "to", lgrpName)
                         if doIt:
                             self.addMemberToGroup(lgrp, email, "MEMBER")  # TODO MANAGER?
-                elif gmember["role"] == "MANAGER":
+                elif gmember is not None and gmember["role"] == "MANAGER":
                     if foundEmail is not None:
                         print("Action: remove member", foundEmail, "from", lgrpName)
                         if doIt:
@@ -621,25 +632,97 @@ class GGSync:
 
                     print("Action: delete", gmemberEmail, "from", grpName)
                     while True:
-                        inp = "y"  # inp = input("Shall I? (y/n)")
+                        inp = input("Shall I? (y/n)")
                         if inp == 'y':
                             if doIt:
-                                self.delMemberFromGroup(gmemberEmail, grp)
+                                self.delMemberFromGroup(grp, gmemberEmail)
                             break
                         if inp == 'n':
                             break
                     pass
-        # TODO when manager->member, remove from leitung
+
+    def listSpcl(self):
+        print("Benutzer mit orgUnitPath /")
+        for k,u in self.ggUsers.items():
+            if not "orgUnitPath" in u:
+                print("no orgUnitPath for", k)
+                continue
+            if u["orgUnitPath"] == "/":
+                print(k, u["name"]["fullName"])
+
+        print("\n\nBenutzer mit orgUnitPath /ADFC")
+        for k,u in self.ggUsers.items():
+            if not "orgUnitPath" in u:
+                print("no orgUnitPath for", k)
+                continue
+            if u["orgUnitPath"] == "/ADFC":
+                print(k, u["name"]["fullName"])
+
+        print("\n\nBenutzer mit anderem orgUnitPath als / oder /ADFC")
+        for k,u in self.ggUsers.items():
+            if not "orgUnitPath" in u:
+                print("no orgUnitPath for", k)
+                continue
+            if u["orgUnitPath"] != "/" and u["orgUnitPath"] != "/ADFC":
+                print(k, u["name"]["fullName"], "orgUnitPath:", u["orgUnitPath"])
+
+        tmembersAll = {}
+        tmembersGrp = {}
+        for kind in ["email_adfc", "email_private"]:
+            for k,u in self.dbMembers[kind].items():
+                for v in u:
+                    tmembersAll[k.lower()] = (v["name"], "aktiv" if v["active"] == "1" else "inaktiv")
+        for t in self.dbTeams.values():
+            for m in t["detail"]["members"]:
+                tmembersGrp[m["email_adfc"].lower()] = True
+
+        print("\n\nBenutzer die nicht in der AktivenDB stehen")
+        for g in self.ggUsers.keys():
+            tm = tmembersAll.get(g)
+            if tm is None:
+                print(g)
+
+        print("\n\nBenutzer die in keiner Gruppe der AktivenDB sind (aber vielleicht in anderen google groups!)")
+        for g in self.ggUsers.keys():
+            tm = tmembersAll.get(g)
+            if tm is not None:
+                if not g in tmembersGrp:
+                    print(g, *tm)
+
+        print("\n\nInaktive Mitglieder der AktivenDB")
+        for k,v in tmembersAll.items():
+            if v[1] == "inaktiv":
+                print(k, v[0])
+
+    def setOU(self):
+        for k,u in self.ggUsers.items():
+            if not "orgUnitPath" in u:
+                print("no orgUnitPath for", k)
+                continue
+            if u["orgUnitPath"] != "/":
+                # print("OK", k, u["name"]["fullName"], u["orgUnitPath"])
+                continue
+            x = k.find('@')
+            y = k.find('.', 0, x)
+            if y == -1:
+                # print("skip ", k)
+                continue
+            print("setOU", k, u["name"]["fullName"], u["orgUnitPath"])
+            if doIt:
+                self.setOU2ADFC(k)
+
 
     def main(self):
-        # self.createMissingGroups()
-        # self.printUnmatchedDBGroups()
-        # self.printUnmatchedDBUsers()
-        # self.addTeamEmailAddressesToAktb()
-        # self.addToGG()
-
+        self.setOU()
+        return
+        # self.listSpcl()
+        self.createMissingGroups()
+        self.printUnmatchedDBGroups()
+        self.printUnmatchedDBUsers()
+        self.addTeamEmailAddressesToAktb()
+        self.addToGG()
         while True:
-            inp = "y"  # inp = input("Remove members from groups? (y/n)")
+            inp = input("Remove members from groups? (y/n)")
             if inp == 'y':
                 self.removeFromGG()
                 break
