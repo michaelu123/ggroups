@@ -83,6 +83,7 @@ class GGSync:
 
         self.service = googleapiclient.discovery.build('admin', 'directory_v1', credentials=creds)
 
+        # TODO: funktion für mapGrpG2A, mapGrpA2G
         with open("mapping.json", "r") as fp:
             self.mapGrpA2G = json.load(fp)
             self.mapGrpG2A = {self.mapGrpA2G[k]: k for k in self.mapGrpA2G.keys()}
@@ -488,42 +489,59 @@ class GGSync:
             mapped = self.mapGrpG2A.get(grpName)
             if mapped is not None:
                 grpName = mapped
+            elif grpName.startswith("Ortsgruppe "):
+                grpName = "OG " + grpName[11:]
             if grpName not in aktTeamNames:
                 print(grpName)
 
     def cleanNoResp(self):
-        aktMemberNames = list(self.dbMembers["email_adfc"].keys())
-        aktMemberNames = [e.lower() for e in aktMemberNames]
-        aktMemberNames.sort()
-        ggUserNames = list(self.ggUsers.keys())
-        ggUserNames.sort()
         print("Clean up NoResponse Group in Ggroups")
-        for gun in ggUserNames:
-            if gun not in aktMemberNames:
-                continue
-            aktMember = self.dbMembers["email_adfc"][gun][0]  # ??
-            ggu = self.ggUsers[gun]
-            memberIn = ggu.get("memberIn")
-            if memberIn is not None and memberIn.get("NoResponse") is not None:
-                if len(memberIn) != 1 \
-                        or not isEmpty(aktMember["phone_primary"]) \
-                        or not isEmpty(aktMember["phone_secondary"]) \
-                        or not isEmpty(aktMember["birthday"]) \
-                        or not isEmpty(aktMember["address"]):
-                    print("Aktion: delete", gun, "from NoResponse")
-                    if doIt:
-                        self.delMemberFromGroup(self.noResponseGrp, gun)
-                        del memberIn["NoResponse"]
-            # in keiner Gruppe, und nichts ausgefüllt:
-            elif memberIn is None \
-                    and isEmpty(aktMember["phone_primary"]) \
-                    and isEmpty(aktMember["phone_secondary"]) \
-                    and isEmpty(aktMember["birthday"]) \
-                    and isEmpty(aktMember["address"]):
-                print("Aktion: add", gun, "to NoResponse")
+        noRespMembers = self.getGGGroupMemberNames(self.noResponseGrp.get("id"))
+        noRespMemberNames = [m.get("email") for m in noRespMembers]
+        aktMembers = {}
+        for emKind in ["email_adfc", "email_private"]:
+            aktMemberNames = list(self.dbMembers[emKind].keys())
+            for aktMemberName in aktMemberNames:
+                aktMemberList = self.dbMembers[emKind].get(aktMemberName)
+                for aktMember in aktMemberList:
+                    em_adfc = aktMember.get("email_adfc")
+                    if not isEmpty(em_adfc):
+                        aktMembers[em_adfc.lower()] = aktMember
+                    em_priv = aktMember.get("email_private")
+                    if not isEmpty(em_priv):
+                        aktMembers[em_priv.lower()] = aktMember
+
+        for gun in noRespMembers:
+            gun = gun.get("email")
+            aktMember = aktMembers.get(gun)
+            if aktMember is None \
+                    or aktMember.get("active") == "0" \
+                    or not isEmpty(aktMember["phone_primary"]) \
+                    or not isEmpty(aktMember["phone_secondary"]) \
+                    or not isEmpty(aktMember["birthday"]) \
+                    or not isEmpty(aktMember["address"]):
+                print("Aktion: delete", gun, "from NoResponse")
                 if doIt:
-                    self.addMemberToGroup(self.noResponseGrp, gun, "MEMBER")
-                    ggu["memberIn"] = {"NoResponse": "MEMBER"}
+                    self.delMemberFromGroup(self.noResponseGrp, gun)
+
+        for aktMemberName in aktMembers.keys():
+            if aktMemberName in noRespMemberNames:
+                continue
+            aktMember = aktMembers.get(aktMemberName)
+            if aktMember.get("active") == "0":
+                continue
+            em_adfc = aktMember["email_adfc"].lower()
+            # don't add private email if adfc email is already set
+            if not isEmpty(em_adfc) and em_adfc in noRespMemberNames:
+                continue
+            if isEmpty(aktMember["phone_primary"]) \
+                       and isEmpty(aktMember["phone_secondary"]) \
+                       and isEmpty(aktMember["birthday"]) \
+                       and isEmpty(aktMember["address"]):
+                print("Aktion: add", aktMemberName, "to NoResponse")
+                noRespMemberNames.append(aktMemberName)
+            if doIt:
+                self.addMemberToGroup(self.noResponseGrp, aktMemberName, "MEMBER")
 
     def findDBUser(self, fname, lname):
         for emKind in ["email_adfc", "email_private"]:
@@ -581,6 +599,8 @@ class GGSync:
             mapped = self.mapGrpA2G.get(name)
             if mapped is not None:
                 name = mapped
+            elif name.startswith("OG "):
+                name = "Ortsgruppe " + name[3:]
             grp = self.ggGroups.get(name)
             if grp is None:
                 continue
@@ -714,6 +734,8 @@ class GGSync:
             mapped = self.mapGrpG2A.get(teamName)
             if mapped is not None:
                 teamName = mapped
+            elif teamName.startswith("Ortsgruppe "):
+                teamName = "OG " + teamName[11:]
             if teamName not in aktTeamNames:
                 continue
             team = self.dbTeams[teamName]
@@ -830,7 +852,8 @@ class GGSync:
     def main(self):
         # self.setOU()
         # self.listSpcl()
-        # self.cleanNoResp()
+        self.cleanNoResp()
+        return
         # self.createMissingGroups()
         # self.printUnmatchedDBGroups()
         # self.addGGUsersToDB()
