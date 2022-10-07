@@ -232,13 +232,25 @@ class GGSync:
             id = dbt["id"]
             teamName2Team[teamName] = dbt
             print("Team", teamName, id)
-            dbt["detail"] = self.getDBTeamMembers(id)
+            detail = self.getDBTeamMembers(id)
+            detail = { "members": detail["members"]}
+            dbt["detail"] = detail
             memberList = dbt["detail"]["members"]
+            memberListShortened = []
             for m in memberList:
                 for emKind in ["email_adfc", "email_private"]:
                     if m[emKind] is not None and m[emKind] == "undef@undef.de":
                         m[emKind] = ""
-
+                ptm = m["project_team_member"]
+                ptm = {"member_role_id": ptm["member_role_id"]}
+                m = { "email_private": m["email_private"],
+                      "email_adfc": m["email_adfc"],
+                      "active": m["active"],
+                      "name": m["name"],
+                      "project_team_member": ptm
+                    }
+                memberListShortened.append(m)
+            dbt["detail"]["members"] = memberListShortened
         self.dbMembers = self.aktdb["emailToMember"]
         self.dbTeams = self.aktdb["teamName2Team"]
 
