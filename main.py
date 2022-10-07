@@ -540,8 +540,8 @@ class GGSync:
                        and isEmpty(aktMember["address"]):
                 print("Aktion: add", aktMemberName, "to NoResponse")
                 noRespMemberNames.append(aktMemberName)
-            if doIt:
-                self.addMemberToGroup(self.noResponseGrp, aktMemberName, "MEMBER")
+                if doIt:
+                    self.addMemberToGroup(self.noResponseGrp, aktMemberName, "MEMBER")
 
     def findDBUser(self, fname, lname):
         for emKind in ["email_adfc", "email_private"]:
@@ -639,6 +639,10 @@ class GGSync:
                 print("cannot find group", grpName, "for team", teamName)
                 continue
             for member in team["detail"]["members"]:
+                if member["email_private"] is None:
+                    member["email_private"] = ""
+                if member["email_adfc"] is None:
+                    member["email_adfc"] = ""
                 if member["active"] == "0":
                     continue
                 aktRole = member["project_team_member"]["member_role_id"]
@@ -770,14 +774,7 @@ class GGSync:
 
                     print("Action: delete", gmemberEmail, "from", grpName)
                     if doIt:
-                        while True:
-                            inp = input("Shall I? (y/n)")
-                            if inp == 'y':
-                                self.delMemberFromGroup(grp, gmemberEmail)
-                                break
-                            if inp == 'n':
-                                break
-                    pass
+                        self.delMemberFromGroup(grp, gmemberEmail)
 
     def listSpcl(self):
         print("Benutzer mit orgUnitPath /")
@@ -850,14 +847,13 @@ class GGSync:
                 self.setOU2ADFC(k)
 
     def main(self):
-        # self.setOU()
+        self.setOU()
         # self.listSpcl()
         self.cleanNoResp()
-        return
-        # self.createMissingGroups()
-        # self.printUnmatchedDBGroups()
-        # self.addGGUsersToDB()
-        # self.addTeamEmailAddressesToAktb()
+        self.createMissingGroups()
+        self.printUnmatchedDBGroups()
+        self.addGGUsersToDB()
+        self.addTeamEmailAddressesToAktb()
         self.addToGG()
         while True:
             inp = input("Remove members from groups? (y/n)")
