@@ -883,6 +883,8 @@ class GGSync:
         keineEmails = {m["email"]: m for m in self.ggGroups.get("Keine Emails")["members"] if m["role"] == "MEMBER"}
         alleEmails = {}
         for ggrp in self.ggGroups.values():
+            if ggrp["name"] in self.spclGroups:
+                continue
             for member in ggrp["members"]:
                 email = member["email"]
                 alleEmails[email] = member
@@ -891,7 +893,7 @@ class GGSync:
                     if doIt:
                         self.addMemberToGroup(alleAktivenGrp, email, "MEMBER")
                     alleAktiven[email] = member
-        for email in alleAktiven.keys():
+        for email in list(alleAktiven.keys()).copy():
             if alleEmails.get(email) is None:
                 print("Aktion: delete", email, "from Alle Aktiven")
                 if doIt:
