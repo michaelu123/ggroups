@@ -24,6 +24,7 @@ import googleapiclient.discovery
 
 doIt = False
 
+
 # The scope URL
 SCOPES = ['https://www.googleapis.com/auth/admin.directory.group',
           'https://www.googleapis.com/auth/admin.directory.user',
@@ -520,6 +521,7 @@ class GGSync:
             aktMember = aktMembers.get(gun)
             if aktMember is None \
                     or aktMember.get("active") == "0" \
+                    or aktMember.get("active") == 0 \
                     or not isEmpty(aktMember["phone_primary"]) \
                     or not isEmpty(aktMember["phone_secondary"]) \
                     or not isEmpty(aktMember["birthday"]) \
@@ -532,8 +534,8 @@ class GGSync:
             if aktMemberName in noRespMemberNames:
                 continue
             aktMember = aktMembers.get(aktMemberName)
-            if aktMember.get("active") == "0":
-                continue
+            if aktMember.get("active") == "0" or aktMember.get("active") == 0:
+                    continue
             em_adfc = aktMember["email_adfc"].lower()
             # don't add private email if adfc email is already set
             if not isEmpty(em_adfc) and em_adfc in noRespMemberNames:
@@ -668,14 +670,14 @@ class GGSync:
                     member["email_private"] = ""
                 if member["email_adfc"] is None:
                     member["email_adfc"] = ""
-                if member["active"] == "0":
+                if member["active"] == "0" or member["active"] == 0:
                     continue
                 aktRole = +member["project_team_member"]["member_role_id"]
                 ggRole = "MANAGER" if aktRole == 1 else "MEMBER"
                 adfcEmail = member["email_adfc"].lower()
                 user = None if adfcEmail == "" else self.ggUsers.get(adfcEmail)
                 if adfcEmail != "" and user is None:
-                    print("Missing user ", adfcEmail, "of team", teamName)
+                    print("Aktb member ", adfcEmail, "of team", teamName, "not in GG")
                     member["missingUser"] = True
                     # Create User?
                     continue
@@ -798,7 +800,7 @@ class GGSync:
                     if self.dbMembers["email_adfc"].get(gmemberEmail) is None \
                             and self.dbMembers["email_private"].get(gmemberEmail) is None:
                         if missingAktdb.get(gmemberEmail) is None:
-                            print("Missing", gmemberEmail, "in group", grpName, "from AktivenDB")
+                            print("GG Member", gmemberEmail, "in group", grpName, "not in AktivenDB")
                             missingAktdb[gmemberEmail] = True
 
                     print("Action: delete", gmemberEmail, "from", grpName)
