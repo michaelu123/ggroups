@@ -1,4 +1,8 @@
 # !/usr/bin/env python
+# TODO: inaktiv-> nicht in alle_aktiven, nicht in irgendeiner Gruppe
+# TODO: normales mitglied das nur in OG ist nicht in alle_aktiven tun
+# TODO: OGs nicht in aktive@... - händisch OGs aus aktive@groups entfernen (ich habe OG Ismaning entfernt)
+# TODO: ABER: OG Leitungen in aktive
 
 # Python Quickstart
 # https://developers.google.com/admin-sdk/directory/v1/quickstart/python
@@ -24,13 +28,13 @@ import googleapiclient.discovery
 
 doIt = False
 
-
 # The scope URL
 SCOPES = ['https://www.googleapis.com/auth/admin.directory.group',
           'https://www.googleapis.com/auth/admin.directory.user',
           'https://www.googleapis.com/auth/admin.directory.customer',
           'https://www.googleapis.com/auth/admin.directory.rolemanagement',
-          'https://www.googleapis.com/auth/admin.directory.userschema']
+          'https://www.googleapis.com/auth/admin.directory.userschema',
+          'https://www.googleapis.com/auth/apps.groups.settings']
 
 hdrs = {"Content-Type": "application/json", "Accept": "application/json, text/plain, */*",
         "Authorization": "Bearer undefined"}
@@ -73,7 +77,8 @@ class GGSync:
             with open('token.json', 'w') as token:
                 token.write(creds.to_json())
 
-        self.service = googleapiclient.discovery.build('admin', 'directory_v1', credentials=creds)
+        self.adminService = googleapiclient.discovery.build('admin', 'directory_v1', credentials=creds)
+        self.gsService = googleapiclient.discovery.build('groupssettings', 'v1', credentials=creds)
 
         # TODO: funktion für mapGrpG2A, mapGrpA2G
         with open("mapping.json", "r") as fp:
@@ -231,6 +236,9 @@ class GGSync:
             memberList = dbt["detail"]["members"]
             memberListShortened = []
             for m in memberList:
+                if m["active"] == "0" or m["active"] == 0:
+                    print("inactive member ", m["name"], "in team ", teamName)
+                    pass
                 for emKind in ["email_adfc", "email_private"]:
                     if m[emKind] is not None and m[emKind] == "undef@undef.de":
                         m[emKind] = ""
@@ -254,7 +262,7 @@ class GGSync:
         page = None
         userList = []
         while True:
-            requ = self.service.users().list(pageToken=page, domain="adfc-muenchen.de")
+            requ = self.adminService.users().list(pageToken=page, domain="adfc-muenchen.de")
             respu = requ.execute()
             userList.extend(respu.get("users"))
             page = respu.get("nextPageToken")
@@ -264,17 +272,12 @@ class GGSync:
         return users
 
     def getGGGroups(self):
-        # no privilege:
-        # reqd = service.domains().list(customer="C01d138zo")
-        # respd = reqd.execute()
-        # domains = respd.get("domains")
-        # domainNames = [d.domainName for d in domains]
         domainNames = ["adfc-muenchen.de", "groups.adfc-muenchen.de", "lists.adfc-muenchen.de"]
         page = None
         groupList = []
         for dn in domainNames:
             while True:
-                reqg = self.service.groups().list(pageToken=page, domain=dn)
+                reqg = self.adminService.groups().list(pageToken=page, domain=dn)
                 respg = reqg.execute()
                 groupList.extend(respg.get("groups"))
                 page = respg.get("nextPageToken")
@@ -283,19 +286,24 @@ class GGSync:
         groups = {g["name"]: g for g in groupList}
         return groups
 
+    def getGGAccessSettings(self, group):
+        reqas = self.gsService.groups().get(groupUniqueId=group["email"])
+        respas = reqas.execute()
+        group["accessSettings"] = respas
+
     # def getGGMember(self, grpId, email):
-    #     reqm = self.service.members().get(groupKey=grpId, memberKey=email)  # , projection="full"
+    #     reqm = self.adminService.members().get(groupKey=grpId, memberKey=email)  # , projection="full"
     #     respm = reqm.execute()
     #     return respm
 
     def chgGGMemberRole(self, group, email, role):
         body = {"role": role}
-        requ = self.service.members().update(groupKey=group["id"], memberKey=email, body=body)
+        requ = self.adminService.members().update(groupKey=group["id"], memberKey=email, body=body)
         respu = requ.execute()
         return respu
 
     def getGGGroup(self, grpId):
-        reqg = self.service.groups().get(groupKey=grpId)
+        reqg = self.adminService.groups().get(groupKey=grpId)
         respg = reqg.execute()
         return respg
 
@@ -303,7 +311,7 @@ class GGSync:
         page = None
         memberList = []
         while True:
-            reqg = self.service.members().list(groupKey=grpId, pageToken=page)  # , projection="full"
+            reqg = self.adminService.members().list(groupKey=grpId, pageToken=page)  # , projection="full"
             respg = reqg.execute()
             ms = respg.get("members")
             if ms is not None:
@@ -324,7 +332,7 @@ class GGSync:
             "status": "ACTIVE",
         }
         try:
-            reqm = self.service.members().insert(groupKey=group["id"], body=body)
+            reqm = self.adminService.members().insert(groupKey=group["id"], body=body)
             respm = reqm.execute()
             return respm
         except Exception as e:
@@ -334,12 +342,12 @@ class GGSync:
     def delMemberFromGroup(self, group, email):
         # body = {"password": "wahrscheinlich_Inaktives_Mitglied"}
         # try:
-        #     requ = self.service.users().update(userKey=email, body=body)
+        #     requ = self.adminService.users().update(userKey=email, body=body)
         #     requ.execute()
         # except Exception as e:
         #     print("Error: cannot change password of", email, ":", e)
         try:
-            reqd = self.service.members().delete(groupKey=group["id"], memberKey=email)
+            reqd = self.adminService.members().delete(groupKey=group["id"], memberKey=email)
             reqd.execute()
         except Exception as e:
             print("Error: cannot delete member", email, "from group", group["name"], ":", e)
@@ -354,7 +362,7 @@ class GGSync:
             ]
         }
         try:
-            requ = self.service.users().update(userKey=user["id"], body=body)
+            requ = self.adminService.users().update(userKey=user["id"], body=body)
             respu = requ.execute()
             return respu
         except Exception as e:
@@ -364,7 +372,7 @@ class GGSync:
     def setOU2ADFC(self, email):
         body = {"orgUnitPath": "/ADFC"}
         try:
-            requ = self.service.users().update(userKey=email, body=body)
+            requ = self.adminService.users().update(userKey=email, body=body)
             requ.execute()
         except Exception as e:
             print("Error: cannot set OU of", email, ":", e)
@@ -393,6 +401,7 @@ class GGSync:
             if teamName not in aktTeamNames and teamName not in self.spclGroups:
                 continue
             print("get groupmembers from", grpName)
+            self.getGGAccessSettings(g)
             g["members"] = grpMembers = self.getGGGroupMemberNames(g["id"])
             for gm in grpMembers:
                 gu = self.ggUsers.get(gm["email"])
@@ -436,7 +445,7 @@ class GGSync:
         pprint.pprint(grp)
         if doIt:
             try:
-                req = self.service.groups().insert(body=grp)
+                req = self.adminService.groups().insert(body=grp)
                 res = req.execute()
                 return grpName, res
             except Exception as e:
@@ -498,6 +507,8 @@ class GGSync:
                 grpName = "OG " + grpName[11:]
             if grpName not in aktTeamNames:
                 print(grpName)
+            else:
+                print("Matching", grpName)
 
     def cleanNoResp(self):
         print("Clean up NoResponse Group in Ggroups")
@@ -754,6 +765,7 @@ class GGSync:
         noEmail = {}
         for grp in sorted(self.ggGroups.values(), key=lambda g: g["name"]):
             grpName = grp["name"]
+            # print("BEGINLOG", grpName)
             if grpName in self.ignoreGroups:
                 continue
             teamName = grpName
@@ -885,7 +897,11 @@ class GGSync:
         keineEmails = {m["email"]: m for m in self.ggGroups.get("Keine Emails")["members"] if m["role"] == "MEMBER"}
         alleEmails = {}
         for ggrp in self.ggGroups.values():
-            if ggrp["name"] in self.spclGroups:
+            grpName = ggrp["name"]
+            if grpName in self.spclGroups:
+                continue
+            # "normale" OG-Mitglieder sollen nicht in alle_aktiven stehen, nur die SprecherInnen
+            if grpName.startswith("OG ") and not grpName.endswith("SprecherInnen"):
                 continue
             for member in ggrp["members"]:
                 email = member["email"]
@@ -897,6 +913,8 @@ class GGSync:
                     alleAktiven[email] = member
         for email in list(alleAktiven.keys()).copy():
             if alleEmails.get(email) is None:
+                if "info@adfc-muenchen.de" == email:
+                    continue
                 print("Aktion: delete", email, "from Alle Aktiven")
                 if doIt:
                     self.delMemberFromGroup(alleAktivenGrp, email)
