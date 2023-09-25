@@ -626,7 +626,7 @@ class GGSync:
                 self.dbMembers["email_adfc"][gun] = [priv]
                 self.addEmailAdfcInTeams(gun, addr)
                 continue
-            print("add", gun, addr, fname, lname)
+            print("add to DB:", gun, addr, fname, lname)
             if doIt:
                 self.addDBMember(gun, addr, fname, lname)
             self.addToDBMembers(gun, addr, fname, lname)
@@ -932,7 +932,7 @@ class GGSync:
         self.cleanNoResp()
         self.createMissingGroups()
         self.printUnmatchedDBGroups()
-        self.addGGUsersToDB() # only if we want all GG members in aktivendb
+        # self.addGGUsersToDB() # only if we want all GG members in aktivendb
         self.addTeamEmailAddressesToAktb()
         self.addToGG()
         while True:
