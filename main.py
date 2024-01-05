@@ -47,6 +47,7 @@ def isEmpty(s):
 class GGSync:
     def __init__(self):
         self.loginADB()
+        # TODO self.getDBHistory()
         try:
             with open("aktdb_data/aktdb.json", "r") as fp:
                 self.aktdb = json.load(fp)
@@ -129,6 +130,14 @@ class GGSync:
     def getDBMembers(self):
         hc = http.client.HTTPSConnection("aktivendb.adfc-muenchen.de")
         hc.request(method="GET", url="/api/members?token=" + self.token, headers=hdrs)
+        resp = hc.getresponse()
+        # print("msg", resp.msg, resp.status, resp.reason)
+        res = json.loads(resp.read())
+        hc.close()
+        return res
+    def getDBHistory(self):
+        hc = http.client.HTTPSConnection("aktivendb.adfc-muenchen.de")
+        hc.request(method="GET", url="/api/histories?token=" + self.token, headers=hdrs)
         resp = hc.getresponse()
         # print("msg", resp.msg, resp.status, resp.reason)
         res = json.loads(resp.read())
@@ -547,7 +556,9 @@ class GGSync:
             aktMember = aktMembers.get(aktMemberName)
             if aktMember.get("active") == "0" or aktMember.get("active") == 0:
                     continue
-            em_adfc = aktMember["email_adfc"].lower()
+            em_adfc = aktMember.get("email_adfc")
+            if em_adfc is not None:
+                em_adfc = em_adfc.lower()
             # don't add private email if adfc email is already set
             if not isEmpty(em_adfc) and em_adfc in noRespMemberNames:
                 continue
@@ -626,10 +637,11 @@ class GGSync:
                 self.dbMembers["email_adfc"][gun] = [priv]
                 self.addEmailAdfcInTeams(gun, addr)
                 continue
-            print("add to DB:", gun, addr, fname, lname)
-            if doIt:
-                self.addDBMember(gun, addr, fname, lname)
-            self.addToDBMembers(gun, addr, fname, lname)
+            # print("add to DB:", gun, addr, fname, lname)
+            # if doIt:
+            #     self.addDBMember(gun, addr, fname, lname)
+            # self.addToDBMembers(gun, addr, fname, lname)
+            print("Not in AktivenDB:", fname, lname, gun)
 
     def addTeamEmailAddressesToAktb(self):
         for team in sorted(self.dbTeams.values(), key=lambda t: t["name"]):
@@ -932,7 +944,7 @@ class GGSync:
         self.cleanNoResp()
         self.createMissingGroups()
         self.printUnmatchedDBGroups()
-        # self.addGGUsersToDB() # only if we want all GG members in aktivendb
+        self.addGGUsersToDB()
         self.addTeamEmailAddressesToAktb()
         self.addToGG()
         while True:
